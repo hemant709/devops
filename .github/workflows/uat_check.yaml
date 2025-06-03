@@ -16,7 +16,7 @@ jobs:
   manage-uat-server:
     name: Manage EC2 Instance
     runs-on: ubuntu-latest
-    if: ${{ github.actor == 'ashish' || github.actor == 'virender' || github.actor == 'devops' }}
+    if: ${{ github.actor == 'hemant709' || github.actor == 'virender' || github.actor == 'devops' }}
 
     steps:
       - name: Configure AWS credentials
