@@ -1,0 +1,73 @@
+name: UAT EC2 Server Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Start or Stop the UAT EC2 Server'
+        required: true
+        default: ''
+        type: choice
+        options:
+          - start
+          - stop
+
+jobs:
+  manage-uat-server:
+    name: Manage EC2 Instance
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'ashish' || github.actor == 'virender' || github.actor == 'devops' }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Start or Stop EC2 Instance
+        id: ec2
+        run: |
+          INSTANCE_ID=${{ secrets.EC2_INSTANCE_ID }}
+          ACTION=${{ github.event.inputs.action }}
+
+          if [ "$ACTION" = "start" ]; then
+            aws ec2 start-instances --instance-ids $INSTANCE_ID
+            DESIRED_STATE="running"
+          else
+            aws ec2 stop-instances --instance-ids $INSTANCE_ID
+            DESIRED_STATE="stopped"
+          fi
+
+          echo "Waiting for instance to reach state: $DESIRED_STATE..."
+          for i in {1..30}; do
+            STATE=$(aws ec2 describe-instances \
+              --instance-ids $INSTANCE_ID \
+              --query "Reservations[0].Instances[0].State.Name" \
+              --output text)
+            echo "Current state: $STATE"
+            if [ "$STATE" = "$DESIRED_STATE" ]; then
+              echo "Instance is now $STATE"
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$STATE" != "$DESIRED_STATE" ]; then
+            echo "Instance did not reach $DESIRED_STATE state in time."
+            exit 1
+          fi
+
+          echo "status=$DESIRED_STATE" >> $GITHUB_OUTPUT
+
+      - name: Send Slack Notification
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          ACTION=${{ github.event.inputs.action }}
+          STATUS_MSG="*UAT EC2 Server* has been *${ACTION}ed* successfully by \`${{ github.actor }}\` via GitHub Actions."
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\": \"${STATUS_MSG}\"}" \
+            $SLACK_WEBHOOK_URL
